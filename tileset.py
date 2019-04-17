@@ -264,7 +264,7 @@ def LoadTileset(idx, name):
         defs[i] = obj
 
     tileset.defs = defs
-    tileset.colldata = sarc['BG_chk/d_bgchk_%s.bin' % name].data
+    tileset.colldata = colldata
 
     return tileset
 

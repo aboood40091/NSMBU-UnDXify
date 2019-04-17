@@ -52,10 +52,7 @@ def IsNSMBLevel(filename):
     with open(filename, 'rb') as f:
         data = f.read()
 
-    if checkContent(data):
-        return True
-
-    return False
+    return checkContent(data)
 
 
 class Metadata:

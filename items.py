@@ -25,10 +25,7 @@ class QRectF:
         return self.y + self.h
 
     def contains(self, x, y):
-        if x in range(self.x, self.x + self.w) and y in range(self.y, self.y + self.h):
-            return True
-
-        return False
+        return x in range(self.x, self.x + self.w) and y in range(self.y, self.y + self.h)
 
 
 class ObjectItem:
