@@ -7,7 +7,7 @@
 
 from NSMBU import Game
 
-name = input('Enter level path, e.g. "e.g. "C:\\NSMBUDX\\romfs\\Course\\1-1.sarc": ')
+name = input('Enter level path, e.g. "C:\\NSMBUDX\\romfs\\Course\\1-1.sarc": ')
 
 game = Game()
 game.LoadLevel(name)
