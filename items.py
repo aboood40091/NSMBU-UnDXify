@@ -128,7 +128,7 @@ class ZoneItem:
             self.background = bg
 
         else:
-            self.background = (0, 0, 0, 0, to_bytes('Black', 16), 0)
+            self.background = (0, 0, 0, 0, b'Black\0\0\0\0\0\0\0\0\0\0\0', 0)
 
         self.ZoneRect = QRectF(self.objx, self.objy, self.width, self.height)
 

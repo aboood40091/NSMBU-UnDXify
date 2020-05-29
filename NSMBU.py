@@ -565,7 +565,12 @@ class Game:
                         if checkb[4] == zoneBoundId: boundObj = checkb
 
                     # Find the proper bg
-                    bgObj = self.bgs[dataz[11]]
+                    try:
+                        bgObj = self.bgs[dataz[11]]
+
+                    except KeyError:
+                        print("Warning!!! Zone %d has an invalid BG block!" % dataz[6])
+                        bgObj = None
 
                     zones.append(ZoneItem(
                         dataz[0], dataz[1], dataz[2], dataz[3],
@@ -949,6 +954,8 @@ class Game:
                 L0 = areaData[thisArea][1]
                 L1 = areaData[thisArea][2]
                 L2 = areaData[thisArea][3]
+
+                print("Processing Area %d..." % thisArea)
 
                 newarea = self.Area()
                 newarea.areanum = thisArea
