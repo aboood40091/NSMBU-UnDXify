@@ -3,12 +3,21 @@
 
 # hi skawo
 
-from items import ObjectItem, ZoneItem, LocationItem, SpriteItem, EntranceItem, PathItem, NabbitPathItem
+from items import ObjectItem, ZoneItem, LocationItem, SpriteItem, EntranceItem
 import os.path
 import SarcLib
 import struct
 
 from tileset import LoadTileset, SaveTileset
+
+
+def bytes_to_string(data, offset=0, charWidth=1, encoding='utf-8'):
+    # Thanks RoadrunnerWMC
+    end = data.find(b'\0' * charWidth, offset)
+    if end == -1:
+        return data[offset:].decode(encoding)
+
+    return data[offset:end].decode(encoding)
 
 
 def to_bytes(inp, length=1, endianness='big'):
@@ -283,7 +292,8 @@ class Game:
                 self.tileset3 = ''
 
                 self.blocks = [b''] * 15
-                self.blocks[4] = b'\0\0\0\0\0\0\0\0Black\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0'
+                self.blocks[4] = (to_bytes(0, 8) + to_bytes(0x426C61636B, 5)
+                                  + to_bytes(0, 15))
 
                 # Settings
                 self.eventBits32 = 0
@@ -303,24 +313,17 @@ class Game:
                 self.entrances = []
                 self.sprites = []
                 self.bounding = []
-                self.bgs = []
                 self.zones = []
                 self.locations = []
                 self.pathdata = []
-                self.nPathdata = []
-                self.paths = []
-                self.nPaths = []
                 self.layers = [[], [], []]
 
                 # Metadata
                 self.LoadMiyamotoInfo(None)
 
                 # BG data
-                self.bgCount = 1
                 self.bgs = {}
-                self.bgblockid = []
-                bg = struct.unpack('<HxBxxxx16sxBxx', self.blocks[4])
-                self.bgblockid.append(bg[0])
+                bg = struct.unpack('<HHHH16sxBxx', self.blocks[4])
                 self.bgs[bg[0]] = bg
 
             def load(self, course, L0, L1, L2, progress=None):
@@ -382,10 +385,10 @@ class Game:
                 Loads block 1, the tileset names
                 """
                 data = struct.unpack_from('32s32s32s32s', self.blocks[0])
-                self.tileset0 = data[0].strip(b'\0').decode('utf-8')
-                self.tileset1 = data[1].strip(b'\0').decode('utf-8')
-                self.tileset2 = data[2].strip(b'\0').decode('utf-8')
-                self.tileset3 = data[3].strip(b'\0').decode('utf-8')
+                self.tileset0 = bytes_to_string(data[0])
+                self.tileset1 = bytes_to_string(data[1])
+                self.tileset2 = bytes_to_string(data[2])
+                self.tileset3 = bytes_to_string(data[3])
 
                 self.tileset0Obj = LoadTileset(0, self.tileset0)
                 self.tileset1Obj = LoadTileset(1, self.tileset1)
@@ -397,18 +400,14 @@ class Game:
                 Loads block 5, the background data
                 """
                 bgData = self.blocks[4]
-                self.bgCount = len(bgData) // 28
+                bgCount = len(bgData) // 28
 
-                bgStruct = struct.Struct('<HxBxxxx16sxBxx')
-
+                bgStruct = struct.Struct('<HHHH16sxBxx')
                 offset = 0
 
                 bgs = {}
-                self.bgblockid = []
-
-                for i in range(self.bgCount):
+                for i in range(bgCount):
                     bg = bgStruct.unpack_from(bgData, offset)
-                    self.bgblockid.append(bg[0])
                     bgs[bg[0]] = bg
 
                     offset += 28
@@ -421,7 +420,7 @@ class Game:
                 """
                 spritedata = self.blocks[7]
                 sprcount = len(spritedata) // 24
-                sprstruct = struct.Struct('<HHHHIIxx2sxxxx')
+                sprstruct = struct.Struct('<HHHHIIBB2sBxxx')
                 offset = 0
                 sprites = []
 
@@ -430,48 +429,14 @@ class Game:
                 obj = SpriteItem
                 for i in range(sprcount):
                     data = unpack(spritedata, offset)
-                    append(obj(data[0], data[1], data[2], to_bytes(data[3], 2) + to_bytes(data[4], 4) + to_bytes(data[5], 4) + data[6]))
+                    append(obj(data[0], data[1], data[2], to_bytes(data[3], 2) + to_bytes(data[4], 4) + to_bytes(data[5], 4) + data[8], data[6], data[7], data[9]))
                     offset += 24
                 self.sprites = sprites
-
-            @staticmethod
-            def MapPositionToZoneID(zones, x, y, useid=False):
-                """
-                Returns the zone ID containing or nearest the specified position
-                """
-                id = 0
-                minimumdist = -1
-                rval = -1
-
-                for zone in zones:
-                    r = zone.ZoneRect
-                    if r.contains(x, y) and useid:
-                        return zone.id
-                    elif r.contains(x, y) and not useid:
-                        return id
-                    xdist = 0
-                    ydist = 0
-                    if x <= r.left(): xdist = r.left() - x
-                    if x >= r.right(): xdist = x - r.right()
-                    if y <= r.top(): ydist = r.top() - y
-                    if y >= r.bottom(): ydist = y - r.bottom()
-
-                    dist = (xdist ** 2 + ydist ** 2) ** 0.5
-                    if dist < minimumdist or minimumdist == -1:
-                        minimumdist = dist
-                        rval = zone.id
-
-                    id += 1
-
-                return rval
 
             def save(self):
                 """
                 Save the area back to a file
                 """
-                # Prepare this first because otherwise the game refuses to load some sprites
-                self.SortSpritesByZone()
-
                 # We don't parse blocks 4, 6, 12, 13
                 # Save the other blocks
                 self.SaveTilesetNames()  # block 1
@@ -523,32 +488,6 @@ class Game:
                     self.SaveLayer(1),
                     self.SaveLayer(2),
                 )
-
-            def SortSpritesByZone(self):
-                """
-                Sorts the sprite list by zone ID so it will work in-game
-                """
-
-                split = {}
-                zones = []
-
-                f_MapPositionToZoneID = self.MapPositionToZoneID
-                zonelist = self.zones
-
-                for sprite in self.sprites:
-                    zone = f_MapPositionToZoneID(zonelist, sprite.objx, sprite.objy)
-                    sprite.zoneID = zone
-                    if not zone in split:
-                        split[zone] = []
-                        zones.append(zone)
-                    split[zone].append(sprite)
-
-                newlist = []
-                zones.sort()
-                for z in zones:
-                    newlist += split[z]
-
-                self.sprites = newlist
 
             def LoadMiyamotoInfo(self, data):
                 if (data is None) or (len(data) == 0):
@@ -608,11 +547,11 @@ class Game:
                 self.bounding = bounding
 
                 # Block 5 - Bg data
-                bgs = self.LoadBackgrounds()
+                self.bgs = self.LoadBackgrounds()
 
                 # Block 10 - zone data
                 zonedata = self.blocks[9]
-                zonestruct = struct.Struct('<HHHHxBxBBBBBxBBxBxBBxBxx')
+                zonestruct = struct.Struct('<HHHHHHBBBBxBBxBxBBxBxx')
                 count = len(zonedata) // 28
                 offset = 0
                 zones = []
@@ -621,12 +560,12 @@ class Game:
 
                     # Find the proper bounding
                     boundObj = None
-                    id = dataz[6]  # still correct, value 7
+                    zoneBoundId = dataz[7]
                     for checkb in self.bounding:
-                        if checkb[4] == id: boundObj = checkb
+                        if checkb[4] == zoneBoundId: boundObj = checkb
 
                     # Find the proper bg
-                    bgObj = bgs[dataz[11]]
+                    bgObj = self.bgs[dataz[11]]
 
                     zones.append(ZoneItem(
                         dataz[0], dataz[1], dataz[2], dataz[3],
@@ -686,17 +625,12 @@ class Game:
                 """
                 pathdata = self.blocks[13]
                 pathcount = len(pathdata) // 12
-                pathstruct = struct.Struct('<BbHHxBxxxx')  # updated struct -- MrRean
+                pathstruct = struct.Struct('<BbHHHxxxx')  # updated struct -- MrRean
                 offset = 0
                 unpack = pathstruct.unpack_from
                 pathinfo = []
-                paths = []
                 for i in range(pathcount):
                     data = unpack(pathdata, offset)
-
-                    if data[0] == 90:
-                        self.LoadNabbitPath(data)
-                        continue
 
                     nodes = self.LoadPathNodes(data[2], data[3])
                     add2p = {'id': int(data[0]),
@@ -708,26 +642,7 @@ class Game:
 
                     offset += 12
 
-                for xpi in pathinfo:
-                    if xpi['id'] == 90:
-                        continue
-                    for j, xpj in enumerate(xpi['nodes']):
-                        paths.append(PathItem(xpj['x'], xpj['y'], xpi, xpj, 0, 0, 0, 0))
-
                 self.pathdata = pathinfo
-                self.paths = paths
-
-            def LoadNabbitPath(self, data):
-                nodes = self.LoadNabbitPathNodes(data[2], data[3])
-
-                add2p = {'nodes': [node for node in nodes]}
-
-                paths = []
-                for j, xpj in enumerate(add2p['nodes']):
-                    paths.append(NabbitPathItem(xpj['x'], xpj['y'], add2p, xpj, 0, 0, 0, 0))
-
-                self.nPathdata = add2p
-                self.nPaths = paths
 
             def LoadPathNodes(self, startindex, count):
                 """
@@ -735,7 +650,7 @@ class Game:
                 """
                 ret = []
                 nodedata = self.blocks[14]
-                nodestruct = struct.Struct('<HHffhHBBBx')  # updated struct -- MrRean
+                nodestruct = struct.Struct('<HHffhHBBBx')
                 offset = startindex * 20
                 unpack = nodestruct.unpack_from
                 for i in range(count):
@@ -745,28 +660,10 @@ class Game:
                                 'speed': float(data[2]),
                                 'accel': float(data[3]),
                                 'delay': int(data[4]),
-                                'unk1': int(data[5]),  # unknowns, probably really not ints, just setting to 0 for now
+                                'unk1': int(data[5]),
                                 'unk2': int(data[6]),
                                 'unk3': int(data[7]),
                                 'unk4': int(data[8]),
-                                })
-                    offset += 20
-                return ret
-
-            def LoadNabbitPathNodes(self, startindex, count):
-                """
-                Loads the Nabbit path nodes
-                """
-                ret = []
-                nodedata = self.blocks[14]
-                nodestruct = struct.Struct('<HHffhHBBBx')  # updated struct -- MrRean
-                offset = startindex * 20
-                unpack = nodestruct.unpack_from
-                for i in range(count):
-                    data = unpack(nodedata, offset)
-                    ret.append({'x': int(data[0]),
-                                'y': int(data[1]),
-                                'action': int(data[4]),
                                 })
                     offset += 20
                 return ret
@@ -829,10 +726,9 @@ class Game:
                 buffer = bytearray(len(self.entrances) * 24)
                 zonelist = self.zones
                 for entrance in self.entrances:
-                    zoneID = self.MapPositionToZoneID(zonelist, entrance.objx, entrance.objy)
                     entstruct.pack_into(buffer, offset, int(entrance.objx), int(entrance.objy), int(entrance.camerax),
                                         int(entrance.cameray), int(entrance.entid), int(entrance.destarea), int(entrance.destentrance),
-                                        int(entrance.enttype), int(entrance.players), int(zoneID), int(entrance.playerDistance),
+                                        int(entrance.enttype), int(entrance.players), int(entrance.entzone), int(entrance.playerDistance),
                                         int(entrance.entsettings), int(entrance.otherID), int(entrance.coinOrder),
                                         int(entrance.pathID), int(entrance.pathnodeindex), int(entrance.transition))
                     offset += 24
@@ -842,35 +738,19 @@ class Game:
                 """
                 Saves the paths back to block 14 and 15
                 """
-                pathstruct = struct.Struct('>BbHHxBxxxx')
+                pathstruct = struct.Struct('>BbHHHxxxx')
                 nodecount = 0
                 for path in self.pathdata:
                     nodecount += len(path['nodes'])
-                if self.nPathdata:
-                    nodecount += len(self.nPathdata['nodes'])
                 nodebuffer = bytearray(nodecount * 20)
                 nodeoffset = 0
                 nodeindex = 0
                 offset = 0
                 pathcount = len(self.pathdata)
-                if self.nPathdata:
-                    pathcount += 1
                 buffer = bytearray(pathcount * 12)
-
-                nPathSaved = False
 
                 for path in self.pathdata:
                     if len(path['nodes']) < 1: continue
-
-                    if path['id'] > 90 and not nPathSaved and self.nPathdata:
-                        self.WriteNabbitPathNodes(nodebuffer, nodeoffset, self.nPathdata['nodes'])
-
-                        pathstruct.pack_into(buffer, offset, 90, 0, int(nodeindex), int(len(self.nPathdata['nodes'])), 0)
-                        offset += 12
-                        nodeoffset += len(self.nPathdata['nodes']) * 20
-                        nodeindex += len(self.nPathdata['nodes'])
-
-                        nPathSaved = True
 
                     self.WritePathNodes(nodebuffer, nodeoffset, path['nodes'])
 
@@ -879,14 +759,6 @@ class Game:
                     offset += 12
                     nodeoffset += len(path['nodes']) * 20
                     nodeindex += len(path['nodes'])
-
-                if not nPathSaved and self.nPathdata:
-                    self.WriteNabbitPathNodes(nodebuffer, nodeoffset, self.nPathdata['nodes'])
-
-                    pathstruct.pack_into(buffer, offset, 90, 0, int(nodeindex), int(len(self.nPathdata['nodes'])), 0)
-                    offset += 12
-                    nodeoffset += len(self.nPathdata['nodes']) * 20
-                    nodeindex += len(self.nPathdata['nodes'])
 
                 self.blocks[13] = bytes(buffer)
                 self.blocks[14] = bytes(nodebuffer)
@@ -900,19 +772,8 @@ class Game:
                 nodestruct = struct.Struct('>HHffhHBBBx')
                 for node in nodes:
                     nodestruct.pack_into(buffer, offset, int(node['x']), int(node['y']), float(node['speed']),
-                                         float(node['accel']), int(node['delay']), 0, 0, 0, 0)
-                    offset += 20
-
-            def WriteNabbitPathNodes(self, buffer, offst, nodes):
-                """
-                Writes the Nabbit path node data to the block 15 bytearray
-                """
-                offset = int(offst)
-
-                nodestruct = struct.Struct('>HHffhHBBBx')
-                for node in nodes:
-                    nodestruct.pack_into(buffer, offset, int(node['x']), int(node['y']), 0.0,
-                                         0.0, int(node['action']), 0, 0, 0, 0)
+                                         float(node['accel']), int(node['delay']), int(node['unk1']), int(node['unk2']),
+                                         int(node['unk3']), int(node['unk4']))
                     offset += 20
 
             def SaveSprites(self):
@@ -920,27 +781,14 @@ class Game:
                 Saves the sprites back to block 8
                 """
                 offset = 0
-                sprstruct = struct.Struct('>HHHHLLBx2sxxxx')
+                sprstruct = struct.Struct('>HHHHIIBB2sBxxx')
                 buffer = bytearray((len(self.sprites) * 24) + 4)
                 f_int = int
                 for sprite in self.sprites:
-                    try:
-                        sprstruct.pack_into(buffer, offset, f_int(sprite.type), f_int(sprite.objx), f_int(sprite.objy),
-                                            struct.unpack(">H", sprite.spritedata[:2])[0], struct.unpack(">I", sprite.spritedata[2:6])[0], struct.unpack(">I", sprite.spritedata[6:10])[0],
-                                            self.MapPositionToZoneID(self.zones, sprite.objx, sprite.objy, True),
-                                            sprite.spritedata[10:])
-                    except struct.error:
-                        # Hopefully this will solve the mysterious bug, and will
-                        # soon no longer be necessary.
-                        raise ValueError('SaveSprites struct.error. Current sprite data dump:\n' + \
-                                         str(offset) + '\n' + \
-                                         str(sprite.type) + '\n' + \
-                                         str(sprite.objx) + '\n' + \
-                                         str(sprite.objy) + '\n' + \
-                                         str(sprite.spritedata[:6]) + '\n' + \
-                                         str(sprite.zoneID) + '\n' + \
-                                         str(bytes([sprite.spritedata[7], ])) + '\n',
-                                         )
+                    sprstruct.pack_into(buffer, offset, f_int(sprite.type), f_int(sprite.objx), f_int(sprite.objy),
+                                        struct.unpack(">H", sprite.spritedata[:2])[0], struct.unpack(">I", sprite.spritedata[2:6])[0], struct.unpack(">I", sprite.spritedata[6:10])[0],
+                                        sprite.zoneID,
+                                        sprite.layer, sprite.spritedata[10:], sprite.initialState)
                     offset += 24
                 buffer[offset] = 0xFF
                 buffer[offset + 1] = 0xFF
@@ -970,31 +818,68 @@ class Game:
                 Saves blocks 10, 3, and 5; the zone data, boundings, and background data respectively
                 """
                 bdngstruct = struct.Struct('>llllHHxxxxxxxx')
-                bgStruct = struct.Struct('>HxBxxxx16sxBxx')
-                zonestruct = struct.Struct('>HHHHxBxBBBBBxBBxBxBBxBxx')
+                bgStruct = struct.Struct('>HHHH16sxBxx')
+                zonestruct = struct.Struct('>HHHHHHBBBBxBBxBxBBxBxx')
                 offset = 0
-                i = 0
+                bdngs, bdngcount = self.GetOptimizedBoundings()
+                bgs, bgcount = self.GetOptimizedBGs()
                 zcount = len(self.zones)
-                buffer2 = bytearray(28 * zcount)
-                buffer4 = bytearray(28 * zcount)
+                buffer2 = bytearray(28 * bdngcount)
+                buffer4 = bytearray(28 * bgcount)
                 buffer9 = bytearray(28 * zcount)
                 for z in self.zones:
                     if z.objx < 0: z.objx = 0
                     if z.objy < 0: z.objy = 0
-                    bdngstruct.pack_into(buffer2, offset, z.yupperbound, z.ylowerbound, z.yupperbound2, z.ylowerbound2, i,
-                                         z.unknownbnf)
-                    bgStruct.pack_into(buffer4, offset, z.id, z.background[1], z.background[2], z.background[3])
+                    bounding = bdngs[z.id]
+                    bdngstruct.pack_into(buffer2, bounding[4] * 28, bounding[0], bounding[1], bounding[2], bounding[3], bounding[4],
+                                         bounding[5])
+                    background = bgs[z.id]
+                    bgStruct.pack_into(buffer4, background[0] * 28, background[0], background[1], background[2], background[3],
+                                       background[4], background[5])
                     zonestruct.pack_into(buffer9, offset,
                                          z.objx, z.objy, z.width, z.height,
-                                         0, 0, z.id, i,
-                                         z.cammode, z.camzoom, z.visibility, z.id,
+                                         0, 0, z.id, bounding[4],
+                                         z.cammode, z.camzoom, z.visibility, background[0],
                                          z.camtrack, z.music, z.sfxmod, z.type)
                     offset += 28
-                    i += 1
 
                 self.blocks[2] = bytes(buffer2)
                 self.blocks[4] = bytes(buffer4)
                 self.blocks[9] = bytes(buffer9)
+
+            def GetOptimizedBoundings(self):
+                bdngs = {}
+                bdngstruct = struct.Struct('>llllHHxxxxxxxx')
+                for z in self.zones:
+                    bdng = bdngstruct.pack(z.yupperbound, z.ylowerbound, z.yupperbound2, z.ylowerbound2, 0, z.unknownbnf)
+                    if bdng not in bdngs:
+                        bdngs[bdng] = []
+                    bdngs[bdng].append(z.id)
+                bdngs = sorted(bdngs.items(), key=lambda kv: min(kv[1]))
+                oBdngs = {}
+                for i, bdng in enumerate(bdngs):
+                    for z in self.zones:
+                        if z.id in bdng[1]:
+                            oBdngs[z.id] = *bdngstruct.unpack(bdng[0])[:4], i, bdngstruct.unpack(bdng[0])[5]
+
+                return oBdngs, len(bdngs)
+
+            def GetOptimizedBGs(self):
+                bgs = {}
+                bgStruct = struct.Struct('>HHHH16sxBxx')
+                for z in self.zones:
+                    bg = bgStruct.pack(0, z.background[1], z.background[2], z.background[3], z.background[4], z.background[5])
+                    if bg not in bgs:
+                        bgs[bg] = []
+                    bgs[bg].append(z.id)
+                bgs = sorted(bgs.items(), key=lambda kv: min(kv[1]))
+                oBgs = {}
+                for i, bg in enumerate(bgs):
+                    for z in self.zones:
+                        if z.id in bg[1]:
+                            oBgs[z.id] = i, *bgStruct.unpack(bg[0])[1:]
+
+                return oBgs, len(bgs)
 
             def SaveLocations(self):
                 """

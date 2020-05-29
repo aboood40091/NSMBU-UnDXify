@@ -124,7 +124,12 @@ class ZoneItem:
             self.entryid = 0
             self.unknownbnf = 0
 
-        self.background = bg
+        if bg is not None:
+            self.background = bg
+
+        else:
+            self.background = (0, 0, 0, 0, to_bytes('Black', 16), 0)
+
         self.ZoneRect = QRectF(self.objx, self.objy, self.width, self.height)
 
 
@@ -144,7 +149,7 @@ class LocationItem:
 
 
 class SpriteItem:
-    def __init__(self, type, x, y, data):
+    def __init__(self, type, x, y, data, zoneID=0, layer=0, initialState=0):
         """
         Creates a sprite with specific data
         """
@@ -152,6 +157,9 @@ class SpriteItem:
         self.objx = x
         self.objy = y
         self.spritedata = data
+        self.zoneID = zoneID
+        self.layer = layer
+        self.initialState = initialState
 
     def __lt__(self, other):
         # Sort by objx, then objy, then sprite type
@@ -186,45 +194,3 @@ class EntranceItem:
 
     def __lt__(self, other):
         return self.entid < other.entid
-
-class PathItem:
-    def __init__(self, objx, objy, pathinfo, nodeinfo, unk1, unk2, unk3,
-                 unk4):  # no idea what the unknowns are, so...placeholders!
-        """
-        Creates a path node with specific data
-        """
-
-        self.objx = objx
-        self.objy = objy
-        self.unk1 = unk1
-        self.unk2 = unk2
-        self.unk3 = unk3
-        self.unk4 = unk4
-        self.pathid = pathinfo['id']
-        self.nodeid = pathinfo['nodes'].index(nodeinfo)
-        self.pathinfo = pathinfo
-        self.nodeinfo = nodeinfo
-
-    def __lt__(self, other):
-        return (self.pathid * 10000 + self.nodeid) < (other.pathid * 10000 + other.nodeid)
-
-
-class NabbitPathItem:
-    def __init__(self, objx, objy, pathinfo, nodeinfo, unk1, unk2, unk3,
-                 unk4):  # no idea what the unknowns are, so...placeholders!
-        """
-        Creates a nabbit path node with specific data
-        """
-
-        self.objx = objx - 8
-        self.objy = objy
-        self.unk1 = unk1
-        self.unk2 = unk2
-        self.unk3 = unk3
-        self.unk4 = unk4
-        self.nodeid = pathinfo['nodes'].index(nodeinfo)
-        self.pathinfo = pathinfo
-        self.nodeinfo = nodeinfo
-
-    def __lt__(self, other):
-        return self.nodeid < other.nodeid
